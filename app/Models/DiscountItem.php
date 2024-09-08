@@ -13,12 +13,17 @@ class DiscountItem extends Model
         'date',
         'supermarket',
         'timeslot',
-        'notes',
-        'photo',
         'item',
         'original_price',
         'discount_percentage',
         'discounted_price',
+        'photo',
+        'notes',
+        'sold_out'
+    ];
+
+    protected $attributes = [
+        'discount_percentage' => 0,
     ];
 
     protected $casts = [

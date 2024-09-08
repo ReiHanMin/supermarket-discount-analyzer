@@ -8,9 +8,13 @@ Route::get('/test', function () {
     return response()->json(['message' => 'API is working']);
 });
 
-// Keep your existing routes commented out for now
+// Define all necessary routes for discount items
+Route::get('/discount-items', [DiscountItemController::class, 'index']);
+Route::post('/discount-items', [DiscountItemController::class, 'store']);
+Route::get('/discount-items/{id}', [DiscountItemController::class, 'show']);
+Route::put('/discount-items/{id}', [DiscountItemController::class, 'update']);
+Route::delete('/discount-items/{id}', [DiscountItemController::class, 'destroy']);
+
+// Alternatively, you can use the apiResource method to define all routes at once:
 // Route::apiResource('discount-items', DiscountItemController::class);
 
-Route::get('/discount-items', [DiscountItemController::class, 'index']);
-
-Route::post('/discount-items', [DiscountItemController::class, 'store']);

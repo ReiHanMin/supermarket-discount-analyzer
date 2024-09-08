@@ -11,18 +11,19 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('discount_items', function (Blueprint $table) {
+        Schema::create('discount_items', function (Blueprint $table) {
+            $table->id();
             $table->date('date');
             $table->string('supermarket');
             $table->string('timeslot');
             $table->string('item');
-            $table->string('photo')->nullable();
             $table->decimal('original_price', 8, 2);
-            $table->string('discount_percentage');
+            $table->decimal('discount_percentage', 5, 2)->default(0);
             $table->decimal('discounted_price', 8, 2);
-            $table->boolean('sold_out')->default(false);
+            $table->string('photo')->nullable();
             $table->text('notes')->nullable();
-            // Removed $table->timestamps() as it's likely already in the table
+            $table->boolean('sold_out')->default(false);
+            $table->timestamps();
         });
     }
 
