@@ -2,7 +2,6 @@
   <div id="app">
     <h1>Supermarket Discount Analyzer</h1>
     <DiscountItems />
-  
   </div>
 </template>
 
@@ -13,7 +12,6 @@ export default {
   name: 'App',
   components: {
     DiscountItems,
- 
   }
 }
 </script>

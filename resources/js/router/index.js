@@ -4,10 +4,10 @@ import DiscountItems from '../components/DiscountItems.vue'
 const routes = [
   {
     path: '/',
-    name: 'DiscountItems',
+    name: 'Home',
     component: DiscountItems
   },
-  // Add more routes as needed
+  // Add other routes as needed
 ]
 
 const router = createRouter({
