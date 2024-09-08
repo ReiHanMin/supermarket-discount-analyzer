@@ -19,18 +19,9 @@ class DiscountItemController extends Controller
     public function store(Request $request)
     {
         try {
+            Log::info('Received request:', $request->all());
+            Log::info('Files:', $request->allFiles());
             Log::info('Received request data:', $request->all());
-    
-            $validated = $request->validate([
-                'date' => 'required|date',
-                'supermarket' => 'required|string',
-                'timeslot' => 'required|string',
-                'photo' => 'required|image|mimes:jpeg,png,jpg,gif|max:2048',
-                'notes' => 'nullable|string',
-            ]);
-    
-            Log::info('Validated data:', $validated);
-    
             if ($request->hasFile('photo')) {
                 $photo = $request->file('photo');
                 Log::info('Photo details:', [
@@ -40,59 +31,99 @@ class DiscountItemController extends Controller
                 ]);
             } else {
                 Log::info('No photo file received');
-                return response()->json(['error' => 'No photo file received'], 400);
             }
     
-            // Step 1: Extract text from the image using Google Vision API
-            $extractedText = $this->extractTextFromImage($validated['photo']);
-    
-            if (!$extractedText) {
-                return response()->json(['error' => 'Failed to extract text from image'], 500);
-            }
-    
-            Log::info('Extracted text:', ['text' => $extractedText]);
-    
-            // Step 2: Process extracted text with OpenAI GPT to parse item details
-            try {
-                $parsedItems = $this->processWithGPT($extractedText);
-    
-                // Ensure parsedItems is an array and properly formatted
-                if (!is_array($parsedItems)) {
-                    throw new \Exception('Invalid format from GPT: Parsed items should be an array.');
-                }
-    
-                Log::info('Parsed items from GPT:', ['parsedItems' => $parsedItems]);
-            } catch (\Exception $e) {
-                Log::error('Error processing with GPT:', ['message' => $e->getMessage()]);
-                return response()->json(['error' => 'Failed to process text with GPT'], 500);
-            }
-    
-            // Step 3: Create discount items for each parsed item
-            $createdItems = [];
-            foreach ($parsedItems as $item) {
-                $itemData = array_merge($validated, [
-                    'item' => $item['item'],
-                    'original_price' => $item['original_price'],
-                    'discount_percentage' => $item['discount_percentage'] ?? 0,
-                    'discounted_price' => $item['discounted_price'],
-                ]);
-                $createdItems[] = DiscountItem::create($itemData);
-            }
-    
-            Log::info('Discount items created:', $createdItems);
-    
-            return response()->json([
-                'message' => 'Discount items created successfully',
-                'items' => $createdItems
-            ], 201);
-        } catch (\Exception $e) {
-            Log::error('Error in store method:', [
-                'message' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+            $validated = $request->validate([
+                'date' => 'required|date',
+                'supermarket' => 'required|string',
+                'timeslot' => 'required|string',
+                'notes' => 'nullable|string',
+                'photo' => 'required|image|mimes:jpeg,png,jpg,gif|max:2048',
             ]);
-            return response()->json(['error' => 'An error occurred while processing your request'], 500);
+    
+            $imagePath = $request->file('photo')->store('photos', 'public');
+        $extractedText = $this->extractTextFromImage(storage_path('app/public/' . $imagePath));
+        
+        try {
+            $items = $this->processWithGPT($extractedText);
+        } catch (\Exception $e) {
+            Log::error('Error processing GPT response: ' . $e->getMessage());
+            return response()->json(['error' => 'Failed to process the image. Please try again.'], 500);
         }
+
+        if (empty($items)) {
+            return response()->json(['error' => 'No items could be extracted from the image.'], 422);
+        }
+    
+            $needsReview = count($items) > 1;
+    
+            $createdItems = [];
+        $needsReview = count($items) > 1;
+
+        foreach ($items as $item) {
+            $discountItem = DiscountItem::create([
+                'date' => $validated['date'],
+                'supermarket' => $validated['supermarket'],
+                'timeslot' => $validated['timeslot'],
+                'notes' => $validated['notes'],
+                'photo' => $imagePath,
+                'item' => $item['item'],
+                'original_price' => $item['original_price'],
+                'discount_percentage' => $item['discount_percentage'],
+                'discounted_price' => $item['discounted_price'],
+                'needs_review' => $needsReview,
+            ]);
+
+            $createdItems[] = $discountItem;
+        }
+
+        if ($needsReview) {
+            try {
+                $this->notifyAdminForReview($imagePath, $createdItems);
+            } catch (\Exception $e) {
+                Log::error('Failed to notify admin for review: ' . $e->getMessage());
+                // Continue execution even if notification fails
+            }
+        }
+
+        return response()->json([
+            'message' => 'Discount item(s) added successfully' . ($needsReview ? ' and flagged for review' : ''),
+            'items' => $createdItems,
+        ], 201);
+
+    } catch (\Illuminate\Validation\ValidationException $e) {
+        Log::error('Validation failed:', ['errors' => $e->errors()]);
+        return response()->json(['errors' => $e->errors()], 422);
+    } catch (\Exception $e) {
+        Log::error('Error in DiscountItemController@store: ' . $e->getMessage());
+        return response()->json(['error' => 'An error occurred while processing your request.'], 500);
     }
+    
+    }
+    
+    private function notifyAdminForReview($imagePath, $items)
+{
+    // Log the items flagged for review
+    Log::info('Items flagged for review', [
+        'image_path' => $imagePath,
+        'items' => $items,
+    ]);
+
+    // Temporarily comment out the email sending
+    // $adminEmail = config('app.admin_email', 'admin@example.com');
+    // Mail::to($adminEmail)->send(new ReviewRequiredNotification($imagePath, $items));
+
+    // Temporarily comment out the notification
+    // $adminUsers = \App\Models\User::where('is_admin', true)->get();
+    // Notification::send($adminUsers, new ItemsNeedReview($imagePath, $items));
+
+    // For now, just log that we would notify admins
+    Log::info('Would notify admins about items needing review', [
+        'image_path' => $imagePath,
+        'items' => $items,
+    ]);
+}
+
     
 
 
@@ -169,6 +200,8 @@ private function extractTextFromImage($imagePath)
         if ($request->hasFile('photo')) {
             $imagePath = $request->file('photo')->store('photos', 'public');
             $validated['photo'] = $imagePath;
+            // Add this line here
+            Log::info('Saved image path:', ['path' => $imagePath]);
         }
 
         $discountItem->update($validated);
@@ -183,7 +216,8 @@ private function extractTextFromImage($imagePath)
     {
         $apiKey = env('OPENAI_API_KEY');
     
-        $prompt = "You are a helpful assistant that extracts product information from Japanese text. Extract the item name, original price, discount percentage, and discounted price from the following text. Please ignore any English text. Provide the information in a JSON format with an 'items' array, even if there's only one item:\n\n$text";
+        $prompt = "You are a helpful assistant that extracts product information from Japanese text. Extract the item name, original price, discount percentage, and discounted price from the following text. Ensure that the original price and discounted price are provided as plain numbers without currency symbols, and the discount percentage is provided as a plain number without the percent sign. Ignore any English text and provide the information in a JSON format with an 'items' array, even if there's only one item. Use this structure: {\"items\": [{\"item_name\": \"...\", \"original_price\": ..., \"discount_percentage\": ..., \"discounted_price\": ...}]}. Here is the text:\n\n$text";
+
     
         $messages = [
             [
